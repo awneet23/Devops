@@ -1,0 +1,4 @@
+Creating and moving a file Step 1: Create a file named notes.txt using touch. Step 2: Rename notes.txt to final_report.txt and move it into a new directory named archive using mv (create the directory first if needed). Step 3: Modify the permissions of archive/final_report.txt using chmod so that the owner has read/write access, the group has read-only access, and others have no access (-rw-r-----). Step 4: Add some unsorted text to final_report.txt, then use cat to display the file's contents and copy it to another file using output redirection
+
+
+Ans: touch notes.txt mkdir archive mv notes.txt archive/final_report.txt chmod 640 archive/final_report.txt echo -e "banana\napple\norange\nmango" > archive/final_report.txt cat archive/final_report.txt cat archive/final_report.txt > copied_report.txt

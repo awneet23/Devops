@@ -1,0 +1,5 @@
+ Find and Kill a rogue Process Step 1: Before you can hunt it, spin up a fake background threat by running this exact command (it creates a harmless, idle background loop): a. ping 127.0.0.1 > /dev/null & Step 2: Use the ps command to find the Process ID (PID) of your background task. Step 3: Locate the PID from the output and use the kill command to stop it:
+
+ Ans: ping 127.0.0.1 > /dev/null & 
+ps -ef | grep "ping 127.0.0.1" 
+kill 11412

@@ -1,0 +1,769 @@
+Question1 — Create the VPC Create a VPC with CIDR 10.0.0.0/16 using the AWS CLI. Tag it appropriately and capture the returned VpcId into vars.env. Verify with if the VPC was created and report
+2 — Create Public and Private Subnets Inside the VPC from 1, create a public subnet (10.0.1.0/24) and a private subnet (10.0.2.0/24) in the same Availability Zone. Capture both SubnetIds into vars.env file
+3 —Create an Internet Gateway and attach it to the VPC. This is the first half of giving the public subnet internet access — explain in one line why an IGW alone isn't enough yet.
+4 —Create a route table, add a route 0.0.0.0/0 → IGW, and associate it with the public subnet. Verify the association using CLI commands (and queries) to print only the route table ID and destination CIDR.
+5 —Launch a t3.micro in the public subnet with auto-assign public IP enabled, using user-data to install and start nginx. Confirm it's reachable over HTTP from your machine.
+6 —Allocate an Elastic IP, create a NAT Gateway in the public subnet, then create a second route table with 0.0.0.0/0 → NAT Gateway, associated with the private subnet. This mirrors Bit 3–4 but for outbound-only private traffic.
+7 —Launch a t2.micro in the private subnet with no public IP. From the Bit 5 public instance, SSH-hop into it (bastion pattern) and confirm it can reach the internet (e.g., curl to a public endpoint) via the NAT Gateway but has no direct inbound path.
+9 — Automate with a Skeleton Script Consolidate Bits 1–8 into provision_vpc.sh using the function-stub pattern below, making it idempotent (each function checks via describe-* before creating):
+create_vpc() { :; }
+create_subnets() { :; }
+setup_igw_and_route() { :; }
+setup_nat_and_route() { :; }
+launch_instances() { :; }
+
+
+Answer: 
+#!/bin/bash
+set -e
+   ============================================================
+   SECURE VPC ARCHITECTURE
+   AWS CLI + VERIFICATION OUTPUT
+   ============================================================
+REGION="ap-southeast-2"
+VPC_CIDR="10.0.0.0/16" PUBLIC_CIDR="10.0.1.0/24" PRIVATE_CIDR="10.0.2.0/24"
+VPC_NAME="secure-vpc" PUBLIC_SUBNET_NAME="public-subnet" PRIVATE_SUBNET_NAME="private-subnet"
+PUBLIC_RT_NAME="public-route-table" PRIVATE_RT_NAME="private-route-table"
+IGW_NAME="secure-vpc-igw" NAT_NAME="secure-vpc-nat" SG_NAME="secure-vpc-sg"
+KEY_NAME="custom-key-pair"
+VARS_FILE="vars.env"
+   ============================================================
+   HELPER FUNCTION
+   ============================================================
+save_var() {
+local NAME="$1"
+local VALUE="$2"
+
+if grep -q "^${NAME}=" "$VARS_FILE" 2>/dev/null; then
+    sed -i "s|^${NAME}=.*|${NAME}=${VALUE}|" "$VARS_FILE"
+else
+    echo "${NAME}=${VALUE}" >> "$VARS_FILE"
+fi
+}
+   ============================================================
+   1. CREATE VPC
+   ============================================================
+create_vpc() {
+echo
+echo "============================================================"
+echo "1. CREATE VPC"
+echo "============================================================"
+
+VPC_ID=$(aws ec2 create-vpc \
+    --region "$REGION" \
+    --cidr-block "$VPC_CIDR" \
+    --query "Vpc.VpcId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$VPC_ID" \
+    --tags Key=Name,Value="$VPC_NAME"
+
+echo "Created VPC: $VPC_ID"
+
+save_var "VPC_ID" "$VPC_ID"
+
+echo
+echo "VPC OUTPUT:"
+
+aws ec2 describe-vpcs \
+    --region "$REGION" \
+    --vpc-ids "$VPC_ID" \
+    --query "Vpcs[0].[VpcId,CidrBlock,State]" \
+    --output table
+}
+   ============================================================
+   2. CREATE PUBLIC AND PRIVATE SUBNETS
+   ============================================================
+create_subnets() {
+echo
+echo "============================================================"
+echo "2. CREATE PUBLIC AND PRIVATE SUBNETS"
+echo "============================================================"
+
+AZ=$(aws ec2 describe-availability-zones \
+    --region "$REGION" \
+    --filters Name=state,Values=available \
+    --query "AvailabilityZones[0].ZoneName" \
+    --output text)
+
+echo "Availability Zone: $AZ"
+
+
+# --------------------------------------------------------
+# PUBLIC SUBNET
+# --------------------------------------------------------
+
+PUBLIC_SUBNET_ID=$(aws ec2 create-subnet \
+    --region "$REGION" \
+    --vpc-id "$VPC_ID" \
+    --cidr-block "$PUBLIC_CIDR" \
+    --availability-zone "$AZ" \
+    --query "Subnet.SubnetId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$PUBLIC_SUBNET_ID" \
+    --tags Key=Name,Value="$PUBLIC_SUBNET_NAME"
+
+echo "Created public subnet: $PUBLIC_SUBNET_ID"
+
+aws ec2 modify-subnet-attribute \
+    --region "$REGION" \
+    --subnet-id "$PUBLIC_SUBNET_ID" \
+    --map-public-ip-on-launch
+
+
+# --------------------------------------------------------
+# PRIVATE SUBNET
+# --------------------------------------------------------
+
+PRIVATE_SUBNET_ID=$(aws ec2 create-subnet \
+    --region "$REGION" \
+    --vpc-id "$VPC_ID" \
+    --cidr-block "$PRIVATE_CIDR" \
+    --availability-zone "$AZ" \
+    --query "Subnet.SubnetId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$PRIVATE_SUBNET_ID" \
+    --tags Key=Name,Value="$PRIVATE_SUBNET_NAME"
+
+echo "Created private subnet: $PRIVATE_SUBNET_ID"
+
+
+save_var "AZ" "$AZ"
+save_var "PUBLIC_SUBNET_ID" "$PUBLIC_SUBNET_ID"
+save_var "PRIVATE_SUBNET_ID" "$PRIVATE_SUBNET_ID"
+
+
+echo
+echo "SUBNET OUTPUT:"
+
+aws ec2 describe-subnets \
+    --region "$REGION" \
+    --subnet-ids "$PUBLIC_SUBNET_ID" "$PRIVATE_SUBNET_ID" \
+    --query "Subnets[*].[SubnetId,CidrBlock,AvailabilityZone]" \
+    --output table
+}
+   ============================================================
+   3 & 4. INTERNET GATEWAY + PUBLIC ROUTE TABLE
+   ============================================================
+setup_igw_and_route() {
+echo
+echo "============================================================"
+echo "3 & 4. INTERNET GATEWAY + PUBLIC ROUTE"
+echo "============================================================"
+
+
+# --------------------------------------------------------
+# INTERNET GATEWAY
+# --------------------------------------------------------
+
+IGW_ID=$(aws ec2 create-internet-gateway \
+    --region "$REGION" \
+    --query "InternetGateway.InternetGatewayId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$IGW_ID" \
+    --tags Key=Name,Value="$IGW_NAME"
+
+echo "Created Internet Gateway: $IGW_ID"
+
+
+aws ec2 attach-internet-gateway \
+    --region "$REGION" \
+    --internet-gateway-id "$IGW_ID" \
+    --vpc-id "$VPC_ID"
+
+echo "Internet Gateway attached to VPC"
+
+save_var "IGW_ID" "$IGW_ID"
+
+
+# --------------------------------------------------------
+# PUBLIC ROUTE TABLE
+# --------------------------------------------------------
+
+PUBLIC_RT_ID=$(aws ec2 create-route-table \
+    --region "$REGION" \
+    --vpc-id "$VPC_ID" \
+    --query "RouteTable.RouteTableId" \
+    --output text)
+    aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$PUBLIC_RT_ID" \
+    --tags Key=Name,Value="$PUBLIC_RT_NAME"
+
+echo "Created Public Route Table: $PUBLIC_RT_ID"
+
+
+# --------------------------------------------------------
+# PUBLIC DEFAULT ROUTE
+# --------------------------------------------------------
+
+aws ec2 create-route \
+    --region "$REGION" \
+    --route-table-id "$PUBLIC_RT_ID" \
+    --destination-cidr-block "0.0.0.0/0" \
+    --gateway-id "$IGW_ID"
+
+# Associate public subnet
+
+aws ec2 associate-route-table \
+    --region "$REGION" \
+    --route-table-id "$PUBLIC_RT_ID" \
+    --subnet-id "$PUBLIC_SUBNET_ID"
+
+
+save_var "PUBLIC_RT_ID" "$PUBLIC_RT_ID"
+
+
+# --------------------------------------------------------
+# OUTPUT
+# --------------------------------------------------------
+
+echo
+echo "INTERNET GATEWAY OUTPUT:"
+
+aws ec2 describe-internet-gateways \
+    --region "$REGION" \
+    --internet-gateway-ids "$IGW_ID" \
+    --query "InternetGateways[0].[InternetGatewayId,Attachments[0].VpcId]" \
+    --output table
+
+
+echo
+echo "PUBLIC ROUTE TABLE OUTPUT:"
+
+echo "Route Table ID:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PUBLIC_RT_ID" \
+    --query "RouteTables[0].RouteTableId" \
+    --output text
+
+echo
+echo "Routes:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PUBLIC_RT_ID" \
+    --query "RouteTables[0].Routes[*].[DestinationCidrBlock,GatewayId]" \
+    --output table
+       ============================================================
+   6. ELASTIC IP + NAT GATEWAY + PRIVATE ROUTE TABLE
+   ============================================================
+setup_nat_and_route() {
+echo
+echo "============================================================"
+echo "6. ELASTIC IP + NAT GATEWAY + PRIVATE ROUTE"
+echo "============================================================"
+
+
+# --------------------------------------------------------
+# ELASTIC IP
+# --------------------------------------------------------
+
+EIP_ALLOC_ID=$(aws ec2 allocate-address \
+    --region "$REGION" \
+    --domain vpc \
+    --query "AllocationId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$EIP_ALLOC_ID" \
+    --tags Key=Name,Value="$NAT_NAME"
+
+echo "Allocated Elastic IP: $EIP_ALLOC_ID"
+
+save_var "EIP_ALLOC_ID" "$EIP_ALLOC_ID"
+
+
+# --------------------------------------------------------
+# NAT GATEWAY
+# --------------------------------------------------------
+
+NAT_ID=$(aws ec2 create-nat-gateway \
+    --region "$REGION" \
+    --subnet-id "$PUBLIC_SUBNET_ID" \
+    --allocation-id "$EIP_ALLOC_ID" \
+    --query "NatGateway.NatGatewayId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$NAT_ID" \
+    --tags Key=Name,Value="$NAT_NAME"
+
+echo "Created NAT Gateway: $NAT_ID"
+
+echo
+echo "Waiting for NAT Gateway to become available..."
+aws ec2 wait nat-gateway-available \
+    --region "$REGION" \
+    --nat-gateway-ids "$NAT_ID"
+
+echo "NAT Gateway is available."
+
+save_var "NAT_ID" "$NAT_ID"
+
+
+# --------------------------------------------------------
+# PRIVATE ROUTE TABLE
+# --------------------------------------------------------
+
+PRIVATE_RT_ID=$(aws ec2 create-route-table \
+    --region "$REGION" \
+    --vpc-id "$VPC_ID" \
+    --query "RouteTable.RouteTableId" \
+    --output text)
+
+aws ec2 create-tags \
+    --region "$REGION" \
+    --resources "$PRIVATE_RT_ID" \
+    --tags Key=Name,Value="$PRIVATE_RT_NAME"
+
+echo "Created Private Route Table: $PRIVATE_RT_ID"
+
+
+# --------------------------------------------------------
+# PRIVATE ROUTE -> NAT
+# --------------------------------------------------------
+
+aws ec2 create-route \
+    --region "$REGION" \
+    --route-table-id "$PRIVATE_RT_ID" \
+    --destination-cidr-block "0.0.0.0/0" \
+    --nat-gateway-id "$NAT_ID"
+
+
+# --------------------------------------------------------
+# ASSOCIATE PRIVATE SUBNET
+# --------------------------------------------------------
+
+aws ec2 associate-route-table \
+    --region "$REGION" \
+    --route-table-id "$PRIVATE_RT_ID" \
+    --subnet-id "$PRIVATE_SUBNET_ID"
+
+
+save_var "PRIVATE_RT_ID" "$PRIVATE_RT_ID"
+
+
+# --------------------------------------------------------
+# OUTPUT
+# --------------------------------------------------------
+
+echo
+echo "ELASTIC IP OUTPUT:"
+
+aws ec2 describe-addresses \
+    --region "$REGION" \
+    --allocation-ids "$EIP_ALLOC_ID" \
+    --query "Addresses[0].[AllocationId,PublicIp]" \
+
+
+echo
+echo "NAT GATEWAY OUTPUT:"
+
+aws ec2 describe-nat-gateways \
+    --region "$REGION" \
+    --nat-gateway-ids "$NAT_ID" \
+    --query "NatGateways[0].[NatGatewayId,State,SubnetId]" \
+    --output table
+
+
+echo
+echo "PRIVATE ROUTE TABLE OUTPUT:"
+
+echo "Route Table ID:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PRIVATE_RT_ID" \
+    --query "RouteTables[0].RouteTableId" \
+    --output text
+
+echo
+echo "Routes:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PRIVATE_RT_ID" \
+    --query "RouteTables[0].Routes[*].[DestinationCidrBlock,NatGatewayId]" \
+    --output table
+}
+   ============================================================
+   5 & 7. LAUNCH EC2 INSTANCES
+   ============================================================
+launch_instances() {
+echo
+echo "============================================================"
+echo "5 & 7. LAUNCH EC2 INSTANCES"
+echo "============================================================"
+
+
+# --------------------------------------------------------
+# FIND UBUNTU AMI
+# --------------------------------------------------------
+
+AMI_ID=$(aws ec2 describe-images \
+    --region "$REGION" \
+    --owners 099720109477 \
+    --filters \
+    "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-
+    *" \
+    "Name=state,Values=available" \
+    --query "sort_by(Images,&CreationDate)[-1].ImageId" \
+    --output text)
+
+echo "AMI ID: $AMI_ID"
+
+
+# --------------------------------------------------------
+# SECURITY GROUP
+# --------------------------------------------------------
+
+SG_ID=$(aws ec2 create-security-group \
+    --region "$REGION" \
+    --group-name "$SG_NAME" \
+    --description "Security group for secure VPC assignment" \
+    --vpc-id "$VPC_ID" \
+    --query "GroupId" \
+    --output text)
+
+echo "Created Security Group: $SG_ID"
+
+
+# --------------------------------------------------------
+# HTTP
+# --------------------------------------------------------
+
+aws ec2 authorize-security-group-ingress \
+    --region "$REGION" \
+    --group-id "$SG_ID" \
+    --protocol tcp \
+    --port 80 \
+    --cidr 0.0.0.0/0
+
+
+# --------------------------------------------------------
+# SSH
+# --------------------------------------------------------
+
+aws ec2 authorize-security-group-ingress \
+    --region "$REGION" \
+    --group-id "$SG_ID" \
+    --protocol tcp \
+    --port 22 \
+    --cidr 0.0.0.0/0
+
+
+save_var "SG_ID" "$SG_ID"
+
+
+# --------------------------------------------------------
+# USER DATA FOR NGINX
+# --------------------------------------------------------
+
+cat > user-data.sh <<'EOF'
+#!/bin/bash
+apt-get update -y apt-get install -y nginx
+systemctl enable nginx systemctl start nginx
+echo "Public EC2 - Secure VPC" > /var/www/html/index.html EOF
+
+# --------------------------------------------------------
+# PUBLIC INSTANCE
+# t3.micro
+# --------------------------------------------------------
+
+PUBLIC_INSTANCE_ID=$(aws ec2 run-instances \
+    --region "$REGION" \
+    --image-id "$AMI_ID" \
+    --instance-type t3.micro \
+    --key-name "$KEY_NAME" \
+    --security-group-ids "$SG_ID" \
+    --subnet-id "$PUBLIC_SUBNET_ID" \
+    --associate-public-ip-address \
+    --user-data file://user-data.sh \
+    --tag-specifications \
+    'ResourceType=instance,Tags=[{Key=Name,Value=public-nginx}]' \
+    --query "Instances[0].InstanceId" \
+    --output text)
+
+echo "Created public instance: $PUBLIC_INSTANCE_ID"
+
+save_var "PUBLIC_INSTANCE_ID" "$PUBLIC_INSTANCE_ID"
+
+
+# --------------------------------------------------------
+# PRIVATE INSTANCE
+# t3.micro
+# --------------------------------------------------------
+
+PRIVATE_INSTANCE_ID=$(aws ec2 run-instances \
+    --region "$REGION" \
+    --image-id "$AMI_ID" \
+    --instance-type t3.micro \
+    --key-name "$KEY_NAME" \
+    --security-group-ids "$SG_ID" \
+    --subnet-id "$PRIVATE_SUBNET_ID" \
+    --no-associate-public-ip-address \
+    --tag-specifications \
+    'ResourceType=instance,Tags=[{Key=Name,Value=private-instance}]' \
+    --query "Instances[0].InstanceId" \
+    --output text)
+
+echo "Created private instance: $PRIVATE_INSTANCE_ID"
+
+save_var "PRIVATE_INSTANCE_ID" "$PRIVATE_INSTANCE_ID"
+
+
+# --------------------------------------------------------
+# WAIT FOR INSTANCES
+# --------------------------------------------------------
+
+echo
+echo "Waiting for instances to reach running state..."
+
+aws ec2 wait instance-running \
+    --region "$REGION" \
+    --instance-ids "$PUBLIC_INSTANCE_ID" "$PRIVATE_INSTANCE_ID"
+
+echo "Both instances are running."
+
+
+# --------------------------------------------------------
+# OUTPUT
+# --------------------------------------------------------
+
+
+echo
+echo "EC2 INSTANCE OUTPUT:"
+
+aws ec2 describe-instances \
+    --region "$REGION" \
+    --instance-ids "$PUBLIC_INSTANCE_ID" "$PRIVATE_INSTANCE_ID" \
+    --query "Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,PrivateIpAddress,PublicIpAddress]" \
+    --output table
+}
+   ============================================================
+   FINAL VERIFICATION
+   ============================================================
+final_verification() {
+echo
+echo
+echo "############################################################"
+echo "#                  FINAL VERIFICATION                      #"
+echo "############################################################"
+
+
+# --------------------------------------------------------
+# VPC
+# --------------------------------------------------------
+
+echo
+echo "---------------- VPC ----------------"
+
+aws ec2 describe-vpcs \
+    --region "$REGION" \
+    --vpc-ids "$VPC_ID" \
+    --query "Vpcs[0].[VpcId,CidrBlock,State]" \
+    --output table
+
+
+# --------------------------------------------------------
+# SUBNETS
+# --------------------------------------------------------
+
+echo
+echo "---------------- SUBNETS ----------------"
+
+aws ec2 describe-subnets \
+    --region "$REGION" \
+    --subnet-ids "$PUBLIC_SUBNET_ID" "$PRIVATE_SUBNET_ID" \
+    --query "Subnets[*].[SubnetId,CidrBlock,AvailabilityZone]" \
+    --output table
+
+
+# --------------------------------------------------------
+# --------------------------------------------------------
+
+echo
+echo "---------------- INTERNET GATEWAY ----------------"
+
+aws ec2 describe-internet-gateways \
+    --region "$REGION" \
+    --internet-gateway-ids "$IGW_ID" \
+    --query "InternetGateways[0].[InternetGatewayId,Attachments[0].VpcId]" \
+    --output table
+
+
+# --------------------------------------------------------
+# PUBLIC ROUTE TABLE
+# --------------------------------------------------------
+
+echo
+echo "---------------- PUBLIC ROUTE TABLE ----------------"
+
+echo "Route Table ID:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PUBLIC_RT_ID" \
+    --query "RouteTables[0].RouteTableId" \
+    --output text
+
+echo
+echo "Routes:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PUBLIC_RT_ID" \
+    --query "RouteTables[0].Routes[*].[DestinationCidrBlock,GatewayId]" \
+    --output table
+
+
+# --------------------------------------------------------
+# ELASTIC IP
+# --------------------------------------------------------
+
+echo
+echo "---------------- ELASTIC IP ----------------"
+
+aws ec2 describe-addresses \
+    --region "$REGION" \
+    --allocation-ids "$EIP_ALLOC_ID" \
+    --query "Addresses[0].[AllocationId,PublicIp]" \
+    --output table
+
+
+# --------------------------------------------------------
+# NAT GATEWAY
+# --------------------------------------------------------
+
+echo
+echo "---------------- NAT GATEWAY ----------------"
+
+aws ec2 describe-nat-gateways \
+    --region "$REGION" \
+    --nat-gateway-ids "$NAT_ID" \
+    --query "NatGateways[0].[NatGatewayId,State,SubnetId]" \
+    --output table
+
+    # --------------------------------------------------------
+# PRIVATE ROUTE TABLE
+# --------------------------------------------------------
+
+echo
+echo "---------------- PRIVATE ROUTE TABLE ----------------"
+
+echo "Route Table ID:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PRIVATE_RT_ID" \
+    --query "RouteTables[0].RouteTableId" \
+    --output text
+
+echo
+echo "Routes:"
+
+aws ec2 describe-route-tables \
+    --region "$REGION" \
+    --route-table-ids "$PRIVATE_RT_ID" \
+    --query "RouteTables[0].Routes[*].[DestinationCidrBlock,NatGatewayId]" \
+    --output table
+
+
+# --------------------------------------------------------
+# EC2 INSTANCES
+# --------------------------------------------------------
+
+echo
+echo "---------------- EC2 INSTANCES ----------------"
+
+aws ec2 describe-instances \
+    --region "$REGION" \
+    --instance-ids "$PUBLIC_INSTANCE_ID" "$PRIVATE_INSTANCE_ID" \
+    --query "Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,PrivateIpAddress,PublicIpAddress]" \
+    --output table
+
+
+# --------------------------------------------------------
+# PUBLIC IP
+# --------------------------------------------------------
+
+PUBLIC_IP=$(aws ec2 describe-instances \
+    --region "$REGION" \
+    --instance-ids "$PUBLIC_INSTANCE_ID" \
+    --query "Reservations[0].Instances[0].PublicIpAddress" \
+    --output text)
+
+echo
+echo "---------------- PUBLIC IP ----------------"
+
+echo "$PUBLIC_IP"
+
+
+# --------------------------------------------------------
+# HTTP TEST
+# --------------------------------------------------------
+
+echo
+echo "---------------- HTTP TEST ----------------"
+
+echo "Testing nginx at: http://$PUBLIC_IP"
+
+echo "Waiting for nginx..."
+
+for i in {1..6}; do
+
+    if curl -s --connect-timeout 5 "http://$PUBLIC_IP"; then
+        echo
+        echo "HTTP test successful."
+        break
+    fi
+
+    echo "Nginx not ready yet. Waiting..."
+    sleep 10
+
+done
+
+
+# --------------------------------------------------------
+# SAVED VARIABLES
+# --------------------------------------------------------
+
+echo
+echo "---------------- SAVED VARIABLES ----------------"
+
+cat "$VARS_FILE"
+
+
+echo
+echo "############################################################"
+echo "#              PROVISIONING COMPLETE                       #"
+echo "############################################################"
+}
+   ============================================================
+   MAIN
+   ============================================================
+echo echo "############################################################" echo "#          SECURE VPC ARCHITECTURE                          #" echo "#                 AWS CLI                                   #" echo "############################################################"
+echo echo "Region: $REGION" echo "VPC CIDR: $VPC_CIDR" echo "Public Subnet: $PUBLIC_CIDR" echo "Private Subnet: $PRIVATE_CIDR"
+create_vpc
+create_subnets
+setup_igw_and_route
+setup_nat_and_route
+launch_instances
+final_verification
+

@@ -1,0 +1,4 @@
+5. Find all the options on the command - plan init
+terraform plan -help
+
+terraform init -help

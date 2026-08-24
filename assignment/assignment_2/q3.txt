@@ -1,0 +1,11 @@
+Q3: Create a sample log file with 20 lines: Answer the following: (head) Print the first 5 lines of events.log. (tail) Print the last 5 lines of events.log. (head with negative-style usage) Print all lines except the last 3 using head. (tail with +N) Print all lines starting from line 15 to the end, using tail. (tail -f, conceptual + practical) What does tail -f events.log do differently from a plain tail events.log? When would you use it in real-world sysadmin work? (Combining head and tail) Using a pipeline of head and tail together, print only line 10 of the file. (Combining with grep) Print the last 3 FAIL events in the file (hint: filter first, then take the tail). (wc + tail) Without hardcoding the number 20, write a command that prints the last 25% of lines in the file dynamically (hint: use wc -l to compute the count first).
+
+
+Ans: head -n 5 events.log
+tail -n 5 events.log
+head -n -3 events.log
+tail -n +15 events.log
+grep 'FAIL' events.log | tail -n 3
+head -n 10 events.log | tail -n 1
+tail -n $(( $(wc -l < events.log) / 4 )) events.log
+

@@ -1,0 +1,6 @@
+create a server configuration file and change its permission  Step 1. Using output redirection (>) create a file called server.conf that contains the           following entries. SERVER_NAME=LocalHost PORT=8080 DEBUG_MODE=true MAX_CONN=100 Step 2. Create a restricted system directory /etc/test_config. Now, try to move      your file there; use sudo if permissions are required: Step 3. Find the line that reads DEBUG_MODE=true and change it to DEBUG_MODE=false. Save and exit. Step 4. Secure the file using chmod so that only the root user can read and write to it, while groups and others have absolutely no access: Verify the permissions of the file and report the permissions.
+
+
+Ans: echo -e "SERVER_NAME=LocalHost\nPORT=8080\nDEBUG_MODE=true\nMAX_CONN=100" > server.conf sudo mkdir -p /etc/test_config sudo mv server.conf /etc/test_config/server.conf sudo sed -i 's/DEBUG_MODE=true/DEBUG_MODE=false/' /etc/test_config/server.conf sudo chmod 600 /etc/test_config/server.conf
+
+

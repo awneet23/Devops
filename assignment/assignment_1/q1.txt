@@ -1,0 +1,5 @@
+Add your username to the sudoers list.
+
+
+Ans:sudo adduser wen
+    sudo usermod -aG sudo wen

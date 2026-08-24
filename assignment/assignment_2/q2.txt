@@ -1,0 +1,29 @@
+Print all lines in /etc/passwd containing the word root. Use -i to case-insensitively search for the string ROOT, and compare the output with question 1 — are they the same? Why or why not? Use -c to count how many lines contain /bin/bash as the login shell (without printing the actual lines). Use -n to print matching lines along with their line numbers for any user whose shell is /usr/sbin/nologin. Use -v to print all lines that do NOT contain nologin — i.e., users with an actual usable shell. Use -E (extended regex) to find all lines where the shell is either /bin/bash or /bin/sh (use the | alternation operator). Use -w to search for the exact word bin (matching only the whole word, not substrings like sbin or bin inside another word). Use grep -E with a regex to find lines where the UID (3rd field) is a 3-digit number (e.g., 100–999), by matching the pattern around the colons. Use grep with ^ and $ anchors to find lines where the username starts with s and print only those lines.Use ls -l /etc/ piped into grep to list only files/directories whose names contain the word conf. Use cat /etc/passwd piped into grep, then piped further into wc -l, to count how many total user accounts exist on the system. Combine ps aux | grep to find all running processes related to ssh (hint: this will also match the grep process itself — how would you exclude it from the output?). Use history | grep (or cat /etc/passwd | grep) combined with cut to extract just the usernames of accounts matching a grep filter for shell /bin/bash. Explain the difference between grep, egrep, and grep -E. Are they functionally equivalent today?
+
+
+Ans: 
+grep 'root' /etc/passwd
+grep -i 'ROOT' /etc/passwd
+grep -c '/bin/bash' /etc/passwd
+grep -n '/bin/bash' /etc/passwd
+grep -v 'nologin' /etc/passwd
+grep -E ':/bin/(bash|sh)$' /etc/passwd
+grep -w 'bin' /etc/passwd
+grep -E '^([^:]*:)[0-9]{3}:' /etc/passwd
+grep '^s' /etc/passwd
+ls -l /etc | grep 'conf'
+cat /etc/passwd | grep '' | wc -l
+ps aux | grep ssh
+cat /etc/passwd | grep '/bin/bash' | cut -d':' -f1
+
+
+
+
+
+
+Difference between grep, egrep, and grep -E
+    • grep uses Basic Regular Expressions (BRE). 
+    • egrep uses Extended Regular Expressions (ERE), allowing operators like |, +, ?, and (). 
+    • grep -E also uses Extended Regular Expressions and is functionally equivalent to egrep.
+
+

@@ -1,0 +1,63 @@
+
+1. create a vpc using terraform, attach a subnet to that vpc and attach a routing table to the subnet with 0.0.0.0 path/route. create an ec2 instance inside the subnet.
+
+Ans:   main.tf
+
+terraform { required_providers { aws = { source  = "hashicorp/aws" version = "~> 6.0" } } }
+provider "aws" { region = "ap-south-1" }
+   -------------------------
+   1. Create VPC
+   -------------------------
+resource "aws_vpc" "assignment_vpc" { cidr_block           = "10.0.0.0/16" enable_dns_support   = true enable_dns_hostnames = true
+tags = { Name = "assignment-vpc" } }
+   -------------------------
+   2. Create Subnet
+   -------------------------
+resource "aws_subnet" "assignment_subnet" { vpc_id                  = aws_vpc.assignment_vpc.id cidr_block              = "10.0.1.0/24" availability_zone       = "ap-south-1a" map_public_ip_on_launch = true
+tags = { Name = "assignment-subnet" } }
+   -------------------------
+   3. Create Internet Gateway
+   -------------------------
+resource "aws_internet_gateway" "assignment_igw" { vpc_id = aws_vpc.assignment_vpc.id
+tags = { Name = "assignment-igw" } 
+   -------------------------
+   4. Create Route Table
+   -------------------------
+resource "aws_route_table" "assignment_route_table" { vpc_id = aws_vpc.assignment_vpc.id
+route { cidr_block = "0.0.0.0/0" gateway_id = aws_internet_gateway.assignment_igw.id }
+tags = { Name = "assignment-route-table" } }
+   -------------------------
+   5. Attach Route Table to Subnet
+   -------------------------
+resource "aws_route_table_association" "assignment_route_association" { subnet_id      = aws_subnet.assignment_subnet.id route_table_id = aws_route_table.assignment_route_table.id }
+   -------------------------
+   6. Create Security Group
+   -------------------------
+resource "aws_security_group" "assignment_sg" { name        = "assignment-security-group" description = "Security group for assignment EC2" vpc_id      = aws_vpc.assignment_vpc.id
+   Allow SSH
+ingress { description = "Allow SSH" from_port   = 22 to_port     = 22 protocol    = "tcp" cidr_blocks = ["0.0.0.0/0"] }
+   Allow all outbound traffic
+egress { from_port   = 0 to_port     = 0 protocol    = "-1" cidr_blocks = ["0.0.0.0/0"] }
+tags = { Name = "assignment-security-group" } }
+   -------------------------
+   7. Find Ubuntu AMI
+   -------------------------
+data "aws_ami" "ubuntu" { most_recent = true owners      = ["099720109477"]
+filter { name   = "name" values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"] }
+filter { name   = "virtualization-type" values = ["hvm"] }
+filter { name   = "root-device-type" values = ["ebs"] } }
+   -------------------------
+   8. Create EC2 Instance
+   -------------------------
+resource "aws_instance" "assignment_ec2" { ami           = data.aws_ami.ubuntu.id instance_type = "t3.micro"
+subnet_id = aws_subnet.assignment_subnet.id
+vpc_security_group_ids = [ aws_security_group.assignment_sg.id ]
+tags = { Name = "assignment-ec2" } }
+   -------------------------
+   9. Display Outputs
+   -------------------------
+output "vpc_id" { value = aws_vpc.assignment_vpc.id }
+output "subnet_id" { value = aws_subnet.assignment_subnet.id }
+output "route_table_id" { value = aws_route_table.assignment_route_table.id }
+output "ec2_instance_id" { value = aws_instance.assignment_ec2.id }
+output "ec2_public_ip" { value = aws_instance.assignment_ec2.public_ip }

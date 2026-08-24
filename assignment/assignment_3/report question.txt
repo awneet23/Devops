@@ -1,0 +1,17 @@
+1. Why does the private route table point to the NAT Gateway, not the IGW? (Bits 3 vs 6)
+A private instance does not have a public IP address, so it cannot communicate directly with the internet through the Internet Gateway (IGW). The NAT Gateway acts as an intermediary that allows instances in the private subnet to make outbound internet connections while preventing direct inbound connections from the internet. The NAT Gateway itself is placed in the public subnet and uses the IGW to reach the internet. Therefore, the private route table sends 0.0.0.0/0 traffic to the NAT Gateway rather than directly to the IGW.
+
+2. Why does the S3 Gateway Endpoint reduce cost/security exposure vs. routing through NAT? (Bit 8)
+An S3 Gateway Endpoint allows traffic from the VPC to reach Amazon S3 without going through the NAT Gateway. This reduces cost because NAT Gateway data-processing charges are avoided for that S3 traffic. It also improves security because the traffic stays within the AWS network instead of requiring the private subnet's S3 traffic to travel through a NAT Gateway and its public internet path. The endpoint can also be associated with specific route tables, limiting which subnets can use it.
+
+3. If your awk HTTP-500 filter returns nothing despite errors existing, what's the likely field/delimiter issue? (Bit 10)
+The most likely problem is that awk is looking at the wrong field because the log's format or delimiter is different from what the script expects. For example, if the HTTP status code is actually in $9 but the script checks $5, it will not find 500. Similarly, if the log is comma-separated but awk is treating it as whitespace-separated, the fields will be parsed incorrectly. The solution is to check the actual log format and use the correct field number and delimiter, such as -F',' for comma-separated data.
+4. What would you see in describe-route-tables output if someone mistakenly added 0.0.0.0/0 → IGW to the private route table? How would your Bit 10 audit script catch it?
+The private route table would show a default route similar to:
+Destination      Gateway
+0.0.0.0/0        igw-xxxxxxxx
+This would be incorrect because the private subnet should use the NAT Gateway for its default route:
+0.0.0.0/0        nat-xxxxxxxx
+The Bit 10 audit script would inspect the private route table and check the target of the 0.0.0.0/0 route. If it finds an Internet Gateway (igw-...) instead of a NAT Gateway (nat-...), it would flag the configuration as a security violation because the private subnet would have a direct route to the internet.
+
+

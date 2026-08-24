@@ -1,0 +1,4 @@
+Workspace Restoration & Web Networking a. Use cp to make a safe backup copy of your system configuration file back to your home directory, naming it server.conf.bak: b. Use curl to verify your server's outbound network connection is fully restored after the breach. Ping www.google.com using curl
+
+Ans:cp /etc/test_config/server.conf ~/server.conf.bak
+curl -I https://www.google.com

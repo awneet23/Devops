@@ -1,0 +1,15 @@
+Create a directory logs_practice and populate it with these sample files mkdir logs_practice && cd logs_practice cat > sales_jan.csv << 'EOF' 101,Rahul Verma,North,45000,Active 102,Sneha Reddy,South,52000,Active 103,Amit Joshi,East,38000,Inactive 104,Divya Nair,West,61000,Active 105,Karan Mehta,North,29000,Inactive EOF cat > sales_feb.csv << 'EOF' 106,Pooja Iyer,South,55000,Active 107,Vikram Rao,East,42000,Active 108,Neha Gupta,West,33000,Inactive EOF touch summary.txt notes.md archive.tar.gzAnswer the following using the specified tools: ● (ls) List all files in logs_practice and count how many of them are .csv files, without opening any file. ● (wc) For each .csv file, print the number of lines (records) it contains. Then find the total number of records across both CSV files in a single command. ● (cut) From sales_jan.csv, extract only the name and region (2nd and 3rd fields) for every record. ● (awk) Print full records from both CSV files combined where the status is Active and salary is greater than 40000. ● (awk + regex) Print only the names of employees whose name starts with a vowel (A, E, I, O, U — case-insensitive). ● (sed) In a single command, replace all occurrences of Inactive with Terminated across both CSV files, printing the result to the terminal (do not modify the original files). ● (cut + sort + wc) Extract just the region field from both files combined, and count how many unique regions appear in total. ● (Pipeline: cat + awk + sed + wc) Combine both CSV files, use awk to filter only Active employees, use sed to strip out the employee ID (1st field), and finally use wc -l to count how many such trimmed records remain.
+
+
+Ans: mkdir logs_practice && cd logs_practice
+cat > sales_jan.csv << 'EOF' 101,Rahul Verma,North,45000,Active 102,Sneha Reddy,South,52000,Active 103,Amit Joshi,East,38000,Inactive 104,Divya Nair,West,61000,Active 105,Karan Mehta,North,29000,Inactive EOF
+cat > sales_feb.csv << 'EOF' 106,Pooja Iyer,South,55000,Active 107,Vikram Rao,East,42000,Active 108,Neha Gupta,West,33000,Inactive EOF
+touch summary.txt notes.md archive.tar.gz
+ls | grep '.csv$' | wc -l
+wc -l *.csv
+cut -d',' -f2,3 sales_jan.csv
+awk -F',' '$5=="Active" && $4>40000' *.csv
+awk -F',' 'tolower($2) ~ /^[aeiou]/ {print $2}' *.csv
+sed 's/Inactive/Terminated/g' *.csv
+cut -d',' -f3 *.csv | sort | uniq | wc -l
+cat .csv | awk -F',' '$5=="Active"' | sed 's/^[^,],//' | wc -l
