@@ -1,0 +1,30 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfplan
+tfplan
+
+# Sensitive variable files
+*.tfvars
+*.tfvars.json
+
+# Keys and secrets
+*.pem
+*.key
+.env
+.env.*
+*.secret
+
+# Node dependencies
+node_modules/
+
+# Logs / editor
+*.log
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+
