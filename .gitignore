@@ -1,0 +1,18 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Secrets / keys
+*.pem
+*.key
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Editor files
+*.swp
+*~
